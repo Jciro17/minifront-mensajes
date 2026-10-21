@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MessageUcoLab Widget · Playground</title>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; background: #eef2f0; color: #17201c; }
+      main { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+      form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+      input { padding: 6px 8px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Playground del widget</h1>
+      <p>Este es el mismo código que importan las aplicaciones consumidoras.</p>
+      <form id="cfg">
+        <input name="token" placeholder="Token Bearer" value="simulated-access-token" />
+        <input name="app" placeholder="Aplicación (opcional)" />
+        <input name="env" placeholder="Ambiente (opcional)" />
+        <button>Montar</button>
+      </form>
+      <div id="widget"></div>
+    </main>
+    <script type="module">
+      import { mount } from '/src/messageucolab.js'
+      let handle
+      const form = document.querySelector('#cfg')
+      function go(e) {
+        e && e.preventDefault()
+        const d = Object.fromEntries(new FormData(form))
+        handle && handle.unmount()
+        handle = mount(document.querySelector('#widget'), {
+          apiBaseUrl: '/messageucolab',
+          token: d.token,
+          applicationName: d.app || undefined,
+          environmentName: d.env || undefined,
+          onEvent: (name, detail) => console.log('[messageucolab]', name, detail)
+        })
+      }
+      form.addEventListener('submit', go)
+      go()
+    </script>
+  </body>
+</html>
