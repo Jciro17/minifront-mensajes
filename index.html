@@ -1,46 +1,63 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" data-theme="azul">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MessageUcoLab Widget · Playground</title>
     <style>
-      body { margin: 0; font-family: system-ui, sans-serif; background: #eef2f0; color: #17201c; }
+      /* Cada "tema" simula una aplicación consumidora distinta. El widget no recibe colores:
+         los detecta solo (variables CSS, botón principal, fondo, texto y tipografía). */
+      :root[data-theme="azul"]    { --primary: #2563eb; --bg: #f3f6fb; --surface: #ffffff; --ink: #0f172a; --radius: 12px; font-family: "Segoe UI", system-ui, sans-serif; }
+      :root[data-theme="verde"]   { --bg: #eef2f0; --surface: #ffffff; --ink: #17201c; --radius: 8px; font-family: Georgia, "Times New Roman", serif; }
+      :root[data-theme="oscuro"]  { --bs-primary: #a855f7; --bg: #0f1020; --surface: #181a2e; --ink: #e6e6f0; --radius: 16px; font-family: "Trebuchet MS", system-ui, sans-serif; }
+      body { margin: 0; background: var(--bg); color: var(--ink); }
+      header { display: flex; align-items: center; gap: 12px; padding: 14px 24px; background: var(--surface); border-bottom: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); }
+      header strong { margin-right: auto; font-size: 18px; }
       main { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
-      form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-      input { padding: 6px 8px; }
+      .btn-primary { border: 0; padding: 8px 16px; border-radius: var(--radius); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+      :root[data-theme="azul"] .btn-primary { background: var(--primary); }
+      :root[data-theme="verde"] .btn-primary { background: #116149; }
+      :root[data-theme="oscuro"] .btn-primary { background: var(--bs-primary); }
+      select { font: inherit; padding: 6px 8px; border-radius: 8px; }
+      #widget { background: var(--surface); border-radius: var(--radius); }
     </style>
   </head>
   <body>
+    <header>
+      <strong id="app-name">Aplicación consumidora</strong>
+      <label>Simular aplicación
+        <select id="theme">
+          <option value="azul">Azul · variable --primary</option>
+          <option value="verde">Verde · solo su botón principal</option>
+          <option value="oscuro">Oscura · variable --bs-primary</option>
+        </select>
+      </label>
+      <button class="btn-primary" type="button">Botón de la app</button>
+    </header>
     <main>
-      <h1>Playground del widget</h1>
-      <p>Este es el mismo código que importan las aplicaciones consumidoras.</p>
-      <form id="cfg">
-        <input name="token" placeholder="Token Bearer" value="simulated-access-token" />
-        <input name="app" placeholder="Aplicación (opcional)" />
-        <input name="env" placeholder="Ambiente (opcional)" />
-        <button>Montar</button>
-      </form>
+      <p>Este es el mismo código que importan las aplicaciones consumidoras. Cambia la aplicación
+        simulada: el widget toma solo el color, el fondo, el texto, la tipografía y el redondeo.</p>
       <div id="widget"></div>
     </main>
     <script type="module">
       import { mount } from '/src/messageucolab.js'
-      let handle
-      const form = document.querySelector('#cfg')
-      function go(e) {
-        e && e.preventDefault()
-        const d = Object.fromEntries(new FormData(form))
-        handle && handle.unmount()
-        handle = mount(document.querySelector('#widget'), {
-          apiBaseUrl: '/messageucolab',
-          token: d.token,
-          applicationName: d.app || undefined,
-          environmentName: d.env || undefined,
-          onEvent: (name, detail) => console.log('[messageucolab]', name, detail)
-        })
-      }
-      form.addEventListener('submit', go)
-      go()
+      const names = { azul: 'Asistencia UCO', verde: 'Inventario UCO', oscuro: 'Biblioteca UCO' }
+      const select = document.querySelector('#theme')
+      const params = new URLSearchParams(location.search)
+      const initial = params.get('tema') || 'azul'
+      select.value = initial
+      document.documentElement.dataset.theme = initial
+      document.querySelector('#app-name').textContent = names[initial]
+      select.addEventListener('change', () => {
+        document.documentElement.dataset.theme = select.value
+        document.querySelector('#app-name').textContent = names[select.value]
+      })
+      window.widget = mount(document.querySelector('#widget'), {
+        apiBaseUrl: '/messageucolab',
+        applicationName: params.get('app') || undefined,
+        environmentName: params.get('env') || 'Develop',
+        onEvent: (name, detail) => console.log('[messageucolab]', name, detail)
+      })
     </script>
   </body>
 </html>
