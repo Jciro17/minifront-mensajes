@@ -1,105 +1,140 @@
 # minifront-mensajes — microfrontend de MessageUcoLab
 
-Componente para que **cualquier aplicación del semillero** administre y consuma sus mensajes de
-MessageUcoLab (backend `NosGraduamos-FC`) sin escribir código contra la API.
+Componente para que **cualquier aplicación del semillero** administre y muestre sus mensajes de
+MessageUcoLab sin escribir código contra la API. Trae una capa para **Vue 3**, que es lo que usan
+todos los equipos, y funciona también en cualquier otro front.
 
-Trae dos piezas en un solo archivo (`messageucolab.js`, ~16 KB gzip, sin dependencias):
-
-| Pieza | Para qué sirve | Cómo se usa |
+| Pieza | Para qué sirve | En Vue |
 |---|---|---|
-| **Microfrontend de administración** | Listar, crear, editar, consultar y traducir los mensajes de *tu* aplicación, y crear sus funcionalidades. | `mount(div, opciones)` o la etiqueta `<messageucolab-admin>` |
-| **Cliente de mensajes** | Mostrar los mensajes en tu app con caché y texto de respaldo si el servicio falla. | `createMessageClient(opciones).get('MSG_CODIGO')` |
+| **Administración de mensajes** | Listar, crear, editar, consultar, traducir e importar por Excel los mensajes de *tu* aplicación. Necesita la sesión de seguridad | `<MessageUcoLabAdmin>` |
+| **Cliente de mensajes** | Mostrar los textos en tu pantalla con caché y texto de respaldo. Usa la ruta pública: el usuario no necesita iniciar sesión | `useMensajes()` y `useMensaje()` |
 
-Funciona igual en React, Vue, Angular o HTML plano. Los estilos van en Shadow DOM, así que no
-chocan con los de tu aplicación, **pero se adaptan a ella** (sección 3).
+Los estilos van en Shadow DOM, así que no chocan con los de tu aplicación, **pero se adaptan a ella**
+(sección 3). Ejemplo completo: [InventarioWebFlux-Frontend](https://github.com/Jciro17/InventarioWebFlux-Frontend).
 
 ---
 
-## 1. Levantar el componente (equipo MessageUcoLab)
+## 1. Instalarlo en tu front Vue
+
+Requisitos: MessageUcoLab y el componente de seguridad funcionando (guía de integración, pasos 0 a 4).
 
 ```bash
-npm install          # una sola vez
-npm run serve        # compila y publica http://localhost:5176/messageucolab.js
+npm install github:Jciro17/minifront-mensajes
 ```
 
-| Comando | Qué hace |
-|---|---|
-| `npm run dev` | Playground en http://localhost:5176 con tres aplicaciones simuladas (azul, verde y oscura) para ver cómo se adapta. Reenvía `/messageucolab` al backend. |
-| `npm run build` | Genera `dist/messageucolab.js`, el archivo que se publica. |
+Al instalarse se compila solo (`prepare`). Para actualizarlo a la última versión, repite el comando.
 
 ---
 
-## 2. Integrarlo en otra aplicación
-
-Requisitos: MessageUcoLab y el componente de seguridad funcionando, y tu usuario como
-administrador de la aplicación en MessageUcoLab (ver la guía paso a paso del backend).
+## 2. Integrarlo
 
 ### Paso 1 — Reenviar `/messageucolab` (mismo origen)
 
-El navegador envía la cookie de sesión de seguridad (`SECURITY_BASELINE_SESSION`); el servidor de
-tu front debe reenviar `/messageucolab` a la API para que todo salga del mismo origen.
-
-**Vite** (`vite.config.js`):
+El navegador envía la cookie de sesión de seguridad (`SECURITY_BASELINE_SESSION`) solo si la llamada
+sale del mismo origen que tu pantalla. En `vite.config.js`:
 
 ```js
 server: {
-  proxy: { '/messageucolab': { target: 'http://localhost:8085', changeOrigin: true } }
+  proxy: {
+    '/messageucolab': {
+      target: 'http://localhost:8000',   // MessageUcoLab por Kong
+      changeOrigin: true,
+      // Sin esto, MessageUcoLab rechaza con 403 los POST/PUT/DELETE de un origen que no conoce
+      configure: (proxy) => proxy.on('proxyReq', (req) => req.removeHeader('origin'))
+    }
+  }
 }
 ```
 
-**Angular** (`proxy.conf.json` + `ng serve --proxy-config proxy.conf.json`):
-
-```json
-{ "/messageucolab": { "target": "http://localhost:8085", "secure": false, "changeOrigin": true } }
-```
-
-**Spring WebFlux:** ver `ProxyConfig.java` en `InventarioWebFlux`.
-
-### Paso 2 — Montar la pantalla
+### Paso 2 — Registrar el plugin (`main.js`)
 
 ```js
-const remote = await import(/* @vite-ignore */ 'http://localhost:5176/messageucolab.js')
+import { MessageUcoLabPlugin } from 'minifront-mensajes/vue'
 
-const widget = remote.mount(document.querySelector('#mensajes'), {
+app.use(MessageUcoLabPlugin, {
   apiBaseUrl: '/messageucolab',
-  applicationName: 'Asistencia UCO',        // tu aplicación en MessageUcoLab
-  environmentName: 'Develop',
-  lockContext: true,                        // no deja cambiar a otra aplicación
-  loginUrl: 'http://localhost:5173/login'   // a dónde ir si la sesión vence
+  applicationId: import.meta.env.VITE_MESSAGEUCOLAB_APPLICATION_ID,   // guía, paso 7
+  environmentId: import.meta.env.VITE_MESSAGEUCOLAB_ENVIRONMENT_ID,
+  // Textos de respaldo: los que hoy están escritos en tu pantalla, con los mismos marcadores {…}
+  fallbacks: {
+    MSG_INVALID: { title: 'Datos incompletos', content: 'Revisa el formulario.' }
+  }
 })
-
-// al salir de la pantalla
-widget.unmount()
 ```
 
-No hace falta pasar colores: el widget toma el estilo de tu aplicación (sección 3).
+### Paso 3 — Mostrar los mensajes
 
-En **HTML plano / cualquier framework** basta la etiqueta:
-
-```html
-<messageucolab-admin api-base-url="/messageucolab" application-name="Asistencia UCO"
-  environment-name="Develop" lock-context></messageucolab-admin>
-<script type="module" src="http://localhost:5176/messageucolab.js"></script>
-```
-
-### Paso 3 — Mostrar los mensajes en tu aplicación (desde el navegador)
+**En un evento** (validaciones, confirmaciones):
 
 ```js
-const { createMessageClient } = await import(/* @vite-ignore */ 'http://localhost:5176/messageucolab.js')
+import { useMensajes } from 'minifront-mensajes/vue'
 
-const mensajes = createMessageClient({
-  apiBaseUrl: '/messageucolab',
-  applicationName: 'Asistencia UCO',
-  environmentName: 'Develop',
-  fallbacks: { MSG_ASISOK: { title: 'Asistencia', content: 'La asistencia de {nombre} quedó registrada.' } }
-})
-
-const m = await mensajes.get('MSG_ASISOK', { nombre: 'Ana' })
-// m = { code, title, content, source: 'api' | 'cache' | 'fallback' }
+const mensajes = useMensajes()
+const m = await mensajes.get('MSG_INVALID')            // { code, title, content, source }
+const n = await mensajes.get('MSG_STOCKLOW', { nombre: 'Mouse', cantidad: '3' })
 ```
 
-`get()` **nunca lanza error**: si el servicio falla devuelve el respaldo. Usa
-`GET /messageucolab/v1/messages/consumer` con `X-Application-Id` y `X-Environment-Id`.
+**En la plantilla**, reactivo (se vuelve a armar cuando cambian las variables):
+
+```vue
+<script setup>
+import { useMensaje } from 'minifront-mensajes/vue'
+const props = defineProps({ producto: Object })
+const aviso = useMensaje('MSG_STOCKLOW', () => ({ nombre: props.producto.nombre, cantidad: String(props.producto.cantidad) }))
+</script>
+
+<template><li>{{ aviso.content }}</li></template>
+```
+
+`get()` **nunca lanza error**: si MessageUcoLab falla devuelve el respaldo con `source: 'fallback'`.
+Usa la ruta pública `GET /messageucolab/v1/public/messages/{código}` con `X-Application-Id` y
+`X-Environment-Id`.
+
+> Si tu backend ya responde el texto resuelto (guía, paso 8), la pantalla solo lo muestra: no hace
+> falta pedirlo otra vez.
+
+### Paso 4 — Administrar los mensajes dentro de tu aplicación
+
+```vue
+<script setup>
+import { MessageUcoLabAdmin } from 'minifront-mensajes/vue'
+</script>
+
+<template>
+  <MessageUcoLabAdmin
+    application-name="Inventario UCO"
+    environment-name="Develop"
+    login-url="http://localhost:5173/login"
+    lock-context
+    :allow-application-creation="false"
+  />
+</template>
+```
+
+Necesita la sesión del componente de seguridad. Si no la hay, el minifront muestra un botón para
+iniciarla y seguridad devuelve al usuario a tu pantalla. Para eso, la dirección de tu front debe estar
+en `PDP_SECURITY_CORS_ALLOWED_ORIGINS` y `PDP_LOGIN_ALLOWED_RETURN_ORIGINS` del `.env` de seguridad.
+
+### Otros fronts (React, Angular, HTML)
+
+Con el mismo paquete, sin la capa de Vue:
+
+```js
+import { mount, createMessageClient } from 'minifront-mensajes'
+
+const widget = mount(document.querySelector('#mensajes'), { apiBaseUrl: '/messageucolab', applicationName: 'Asistencia UCO' })
+widget.unmount()   // al salir de la pantalla
+```
+
+O la etiqueta `<messageucolab-admin api-base-url="/messageucolab" application-name="Asistencia UCO" lock-context>`.
+
+### Desarrollo del minifront
+
+| Comando | Qué hace |
+|---|---|
+| `npm run dev` | Playground en http://localhost:5176 con tres aplicaciones simuladas para ver cómo se adapta. Reenvía `/messageucolab` al backend |
+| `npm run build` | Genera `dist/messageucolab.js` y `dist/vue.js` |
+| `npm run serve` | Compila y publica `http://localhost:5176/messageucolab.js` para importarlo por URL |
 
 ---
 
@@ -158,10 +193,17 @@ Tokens disponibles: `accent`, `accentText`, `background`, `text`, `surface`, `bo
 
 Los mismos eventos se emiten en el contenedor como `CustomEvent` `messageucolab:<nombre>`.
 
+En Vue, `<MessageUcoLabAdmin>` recibe estas opciones como props en kebab-case
+(`application-name`, `lock-context`…), emite `@event` con `{ name, detail }` y `@unauthorized`, y
+expone `refresh()`, `reload()` y `refreshTheme()`. Si cambia una prop, se vuelve a montar.
+
 ### `createMessageClient(opciones)`
 
 Acepta `apiBaseUrl`, `applicationId` + `environmentId` (o `applicationName` + `environmentName`),
 `fallbacks`, `cacheTtlMs`, `missTtlMs`, `timeoutMs` (4 s) y `onError(error, codigo)`.
+
+Son las mismas opciones de `app.use(MessageUcoLabPlugin, opciones)`. `useMensajes()` devuelve este
+cliente: `get`, `text`, `preload`, `clearCache` y `setFallbacks`.
 
 ---
 

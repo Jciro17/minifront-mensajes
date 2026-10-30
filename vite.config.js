@@ -24,10 +24,13 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist',
       emptyOutDir: true,
       lib: {
-        entry: 'src/messageucolab.js',
+        // messageucolab.js funciona en cualquier front; vue.js lo envuelve como componente de Vue
+        entry: { messageucolab: 'src/messageucolab.js', vue: 'src/vue.js' },
         formats: ['es'],
-        fileName: () => 'messageucolab.js'
-      }
+        fileName: (_format, name) => `${name}.js`
+      },
+      // Vue lo pone la aplicación que instala el paquete
+      rollupOptions: { external: ['vue'] }
     }
   }
 })

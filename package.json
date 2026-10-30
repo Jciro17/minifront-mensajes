@@ -1,12 +1,13 @@
 {
   "name": "minifront-mensajes",
-  "version": "0.1.0",
-  "description": "Microfrontend de administración y cliente de mensajes de MessageUcoLab para cualquier aplicación (React, Vue, Angular o HTML).",
+  "version": "0.4.0",
+  "description": "Microfrontend de administración y cliente de mensajes de MessageUcoLab para cualquier aplicación, con componente y composables para Vue 3.",
   "type": "module",
   "main": "./dist/messageucolab.js",
   "module": "./dist/messageucolab.js",
   "exports": {
-    ".": "./dist/messageucolab.js"
+    ".": "./dist/messageucolab.js",
+    "./vue": "./dist/vue.js"
   },
   "files": [
     "dist",
@@ -17,9 +18,19 @@
     "build": "vite build",
     "preview": "vite preview",
     "serve": "vite build && vite preview",
-    "mock": "node mock/mock-server.mjs"
+    "mock": "node mock/mock-server.mjs",
+    "prepare": "vite build"
   },
   "devDependencies": {
-    "vite": "5.4.11"
+    "vite": "5.4.11",
+    "vue": "3.5.13"
+  },
+  "peerDependencies": {
+    "vue": "^3.3.0"
+  },
+  "peerDependenciesMeta": {
+    "vue": {
+      "optional": true
+    }
   }
 }

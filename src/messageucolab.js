@@ -24,7 +24,7 @@
  * Los estilos viven en un Shadow DOM, así que no chocan con los del host.
  */
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const DEFAULT_API_BASE_URL = '/messageucolab';
 const DEFAULT_LOGIN_URL = 'http://localhost:5173/login';
 
