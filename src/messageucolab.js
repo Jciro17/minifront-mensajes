@@ -1061,7 +1061,8 @@ class AdminWidget {
     const [min, max] = counter.split('-').map(Number);
     const out = this.root.querySelector(`[data-counter-for="${target.name}"]`);
     if (!out) return;
-    const len = target.value.trim().length;
+    const value = target.value.trim();
+    const len = target.name === 'code' ? value.toUpperCase().replace(/^MSG_+/, '').length : value.length;
     out.textContent = target.name === 'code'
       ? `${len}/${max} · se guardará como ${toMessageCode(target.value) || 'MSG_…'}`
       : `${len}/${max} caracteres`;
@@ -1220,13 +1221,13 @@ class AdminWidget {
       const suffix = String(data.code || '').trim().toUpperCase().replace(/^MSG_+/, '');
       const environmentIds = formData.getAll('environmentIds');
       const problems = [];
-      if (!suffix || suffix.length > 10 || !/^[A-Z0-9 ]+$/.test(suffix))
-        problems.push('El código acepta hasta 10 letras, números o espacios (sin MSG_). Ej.: STOCKLOW');
+      if (!suffix || suffix.length > 50 || !/^[A-Z0-9 ]+$/.test(suffix))
+        problems.push('El código acepta entre 1 y 50 letras, números o espacios (sin MSG_). Ej.: STOCKLOW');
       if (!environmentIds.length) problems.push('Elige al menos un ambiente.');
-      if (data.title.trim().length < 10 || data.title.trim().length > 50)
-        problems.push('El título debe tener entre 10 y 50 caracteres.');
-      if (data.content.trim().length < 10 || data.content.trim().length > 100)
-        problems.push('El contenido debe tener entre 10 y 100 caracteres.');
+      if (data.title.trim().length < 10 || data.title.trim().length > 200)
+        problems.push('El título debe tener entre 10 y 200 caracteres.');
+      if (data.content.trim().length < 10 || data.content.trim().length > 500)
+        problems.push('El contenido debe tener entre 10 y 500 caracteres.');
       if (!data.functionalityId) problems.push('Selecciona una funcionalidad (créala en Configuración si no hay).');
       if (!data.typeId || !data.categoryId || !data.statusId) problems.push('Tipo, categoría y estado son obligatorios.');
       if (problems.length) return this.set({ error: problems.join(' '), notice: '' });
@@ -1258,10 +1259,10 @@ class AdminWidget {
       const code = this.state.editing?.code;
       if (!code) return;
       const problems = [];
-      if (data.title.trim().length < 10 || data.title.trim().length > 50)
-        problems.push('El título debe tener entre 10 y 50 caracteres.');
-      if (data.content.trim().length < 10 || data.content.trim().length > 100)
-        problems.push('El contenido debe tener entre 10 y 100 caracteres.');
+      if (data.title.trim().length < 10 || data.title.trim().length > 200)
+        problems.push('El título debe tener entre 10 y 200 caracteres.');
+      if (data.content.trim().length < 10 || data.content.trim().length > 500)
+        problems.push('El contenido debe tener entre 10 y 500 caracteres.');
       if (!data.functionalityId) problems.push('Selecciona una funcionalidad.');
       if (!data.typeId || !data.categoryId || !data.statusId) problems.push('Tipo, categoría y estado son obligatorios.');
       if (problems.length) return this.set({ error: problems.join(' '), notice: '' });
@@ -1508,8 +1509,8 @@ class AdminWidget {
               .join('')}</div>
           </div>
           <label>Código *
-            <input name="code" maxlength="14" placeholder="STOCKLOW" data-count="1-10" autocomplete="off" />
-            <small data-counter-for="code">0/10 · se guardará como MSG_…</small>
+            <input name="code" maxlength="54" placeholder="STOCKLOW" data-count="1-50" autocomplete="off" />
+            <small data-counter-for="code">0/50 · se guardará como MSG_…</small>
           </label>
           <label>Funcionalidad *
             <select name="functionalityId" ${noFunc ? 'disabled' : ''}>
@@ -1519,13 +1520,13 @@ class AdminWidget {
           <label>Tipo *<select name="typeId">${this.options_(c.types)}</select></label>
           <label>Categoría *<select name="categoryId">${this.options_(c.categories)}</select></label>
           <label>Estado *<select name="statusId">${this.options_(c.states)}</select></label>
-          <label class="full"><span>Título * <small>(10 a 50)</small></span>
-            <input name="title" maxlength="50" data-count="10-50" placeholder="Stock por debajo del mínimo" />
-            <small data-counter-for="title">0/50 caracteres</small>
+          <label class="full"><span>Título * <small>(10 a 200)</small></span>
+            <input name="title" maxlength="200" data-count="10-200" placeholder="Stock por debajo del mínimo" />
+            <small data-counter-for="title">0/200 caracteres</small>
           </label>
-          <label class="full"><span>Contenido * <small>(10 a 100). Puedes usar variables como {nombre}; la app las reemplaza.</small></span>
-            <textarea name="content" maxlength="100" data-count="10-100" placeholder="El producto {nombre} tiene solo {cantidad} unidades."></textarea>
-            <small data-counter-for="content">0/100 caracteres</small>
+          <label class="full"><span>Contenido * <small>(10 a 500). Puedes usar variables como {nombre}; la app las reemplaza.</small></span>
+            <textarea name="content" maxlength="500" data-count="10-500" placeholder="El producto {nombre} tiene solo {cantidad} unidades."></textarea>
+            <small data-counter-for="content">0/500 caracteres</small>
           </label>
         </div>
         <div class="row" style="margin-top:14px">
@@ -1651,11 +1652,11 @@ class AdminWidget {
               ${this.options_(c.functionalities, { selected: m.functionalityId })}
             </select>
           </label>
-          <label class="full"><span>Título * <small>(10 a 50)</small></span>
-            <input name="title" maxlength="50" value="${escapeHtml(m.title)}" />
+          <label class="full"><span>Título * <small>(10 a 200)</small></span>
+            <input name="title" maxlength="200" value="${escapeHtml(m.title)}" />
           </label>
-          <label class="full"><span>Contenido * <small>(10 a 100)</small></span>
-            <textarea name="content" maxlength="100">${escapeHtml(m.content)}</textarea>
+          <label class="full"><span>Contenido * <small>(10 a 500)</small></span>
+            <textarea name="content" maxlength="500">${escapeHtml(m.content)}</textarea>
           </label>
         </div>
         <div class="row" style="margin-top:14px">
