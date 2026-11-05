@@ -196,9 +196,9 @@ const server = http.createServer(async (req, res) => {
     const b = await readBody(req);
     if (!b) return fail(res, 400, 'BAD_REQUEST', 'Cuerpo invalido.', path);
     const suffix = String(b.code || '').trim().toUpperCase();
-    if (!/^[A-Z0-9 ]{1,10}$/.test(suffix)) return fail(res, 422, 'UNPROCESSABLE_ENTITY', 'Codigo invalido.', path);
-    if ((b.title || '').length < 10 || b.title.length > 50) return fail(res, 422, 'UNPROCESSABLE_ENTITY', 'El titulo debe tener entre 10 y 50 caracteres.', path);
-    if ((b.content || '').length < 10 || b.content.length > 100) return fail(res, 422, 'UNPROCESSABLE_ENTITY', 'El contenido debe tener entre 10 y 100 caracteres.', path);
+    if (!/^[A-Z0-9 ]{1,50}$/.test(suffix)) return fail(res, 422, 'UNPROCESSABLE_ENTITY', 'Codigo invalido.', path);
+    if ((b.title || '').trim().length < 10 || b.title.trim().length > 200) return fail(res, 422, 'UNPROCESSABLE_ENTITY', 'El titulo debe tener entre 10 y 200 caracteres.', path);
+    if ((b.content || '').trim().length < 10 || b.content.trim().length > 500) return fail(res, 422, 'UNPROCESSABLE_ENTITY', 'El contenido debe tener entre 10 y 500 caracteres.', path);
     const func = byId(functionalities, b.functionalityId);
     const env = byId(environments, envId);
     if (!func || func.applicationId !== env.applicationId) return fail(res, 422, 'UNPROCESSABLE_ENTITY', 'La funcionalidad no pertenece a la aplicacion.', path);
