@@ -70,6 +70,7 @@ export const MessageUcoLabAdmin = defineComponent({
     expose({
       refresh: () => widget?.refresh(),
       reload: () => widget?.reload(),
+      reconnectEvents: () => widget?.reconnectEvents(),
       refreshTheme: () => widget?.refreshTheme()
     });
     return () => h('div', { ref: host });

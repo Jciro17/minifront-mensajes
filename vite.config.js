@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
       port: 5176,
       strictPort: true,
       cors: true,
-      proxy: { '^/messageucolab/.*': { target: backend, changeOrigin: true } }
+      proxy: { '^/messageucolab/.*': { target: backend, changeOrigin: true, timeout: 0, proxyTimeout: 0 } }
     },
     preview: {
       port: 5176,
