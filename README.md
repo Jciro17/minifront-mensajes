@@ -39,6 +39,8 @@ server: {
     '/messageucolab': {
       target: 'http://localhost:8000',   // MessageUcoLab por Kong
       changeOrigin: true,
+      timeout: 0,                     // El canal SSE es de larga duración
+      proxyTimeout: 0,
       // Sin esto, MessageUcoLab rechaza con 403 los POST/PUT/DELETE de un origen que no conoce
       configure: (proxy) => proxy.on('proxyReq', (req) => req.removeHeader('origin'))
     }
@@ -128,6 +130,35 @@ widget.unmount()   // al salir de la pantalla
 
 O la etiqueta `<messageucolab-admin api-base-url="/messageucolab" application-name="Asistencia UCO" lock-context>`.
 
+### Funcionalidades y actualizaciones automáticas de administración
+
+La sección **Configuración** muestra nombre, estado y una acción **Activar/Inactivar** por funcionalidad. Antes de guardar se solicita confirmación explícita:
+
+- Inactivar una funcionalidad inactiva todos sus mensajes, en todos los ambientes, sin eliminarlos.
+- Activarla nuevamente no reactiva sus mensajes; conservan el estado anterior.
+- Solo las funcionalidades activas pueden seleccionarse al crear mensajes. No se permite activar un mensaje si su funcionalidad está inactiva; el backend vuelve a validar estas reglas.
+
+La administración usa estos contratos existentes del backend:
+
+| Método | Ruta bajo `/messageucolab/v1` | Contexto |
+|---|---|---|
+| `PATCH` | `/application/functionality/{functionalityId}/state` | Cuerpo `{ applicationId, stateId }`, sesión y aplicación propia |
+| `GET` | `/messages/events` | `Accept: text/event-stream`, `X-Application-Id` y cookie BFF |
+
+Ambas rutas requieren su permiso en el PEP. Un permiso POST de creación no sustituye al PATCH o al GET de eventos. La configuración de seguridad y sus despliegues los gestiona su responsable; este paquete no los cambia ni maneja tokens.
+
+El listado se actualiza con `MessageCreated`, `MessageUpdated`, `MessageDeleted`, `MessageChanged` y `MessagesChanged`. Esta última señal se reserva para cambios colectivos, como la inactivación por funcionalidad. `heartbeat` no dispara consultas. Al conectar o reconectar, se recupera el estado actual; las ráfagas se agrupan sin recargar la página.
+
+Se conservan la búsqueda por código, el ambiente y la página válida. Los formularios y archivos de importación no se reemplazan por una actualización de fondo. Los catálogos se refrescan al abrir Configuración o Crear, al conectar y ante cambios colectivos. Una respuesta anterior de otra aplicación o ambiente no puede sobrescribir el contexto actual. Cambiar de contexto o desmontar el componente cierra la suscripción y cancela sus reintentos y refrescos pendientes.
+
+Si el canal se interrumpe se reintenta automáticamente con espera progresiva. Un `403` muestra un aviso de autorización y no genera reintentos infinitos. El botón **Reconectar actualizaciones** permite reabrir el canal sin recargar después de corregir el permiso. Un `401` conserva el flujo normal de sesión vencida.
+
+SSE avisa después de actualizar las proyecciones de lectura. Sigue siendo asíncrono y en memoria: puede haber varias señales por acción y no existe replay durable ni reparto automático entre réplicas.
+
+**Esto no sincroniza la caché pública de `createMessageClient` ni de `useMensajes()`.** Esos clientes siguen usando TTL y no abren un canal administrativo con sesión. El GET inicial con cursor, historial persistente de cambios y SSE para cachés consumidoras es una mejora futura distinta.
+
+Para incorporar una versión nueva en una aplicación que instala este paquete, primero hay que publicar el commit y actualizar la dependencia Git a esa revisión. Si se consume por URL, volver a generar y publicar ambos bundles de `dist`; compilar este repositorio no actualiza automáticamente los paquetes ya instalados en otras aplicaciones.
+
 ### Desarrollo del minifront
 
 | Comando | Qué hace |
@@ -187,15 +218,19 @@ Tokens disponibles: `accent`, `accentText`, `background`, `text`, `surface`, `bo
 | `theme` | `'auto'` | `'auto'`, `'none'` o un objeto de tokens (sección 3). |
 | `pageSize` | `10` | Mensajes por página. |
 | `allowApplicationCreation` | `true` | Muestra el formulario para registrar otra aplicación en Configuración. |
-| `onEvent(nombre, detalle)` | — | Eventos: `context`, `created`, `updated`, `deleted`, `functionality-created`, `application-created`, `error`. |
+| `onEvent(nombre, detalle)` | — | Eventos: `context`, `created`, `updated`, `deleted`, `functionality-created`, `functionality-state-changed`, `application-created`, `imported`, `server-event`, `events-status`, `error`. |
 | `onUnauthorized(error)` | — | Se llama ante un 401 (sesión vencida). |
 | `seeds` | UUIDs del seed | Idiomas y estados para crear aplicaciones y funcionalidades. |
 
 Los mismos eventos se emiten en el contenedor como `CustomEvent` `messageucolab:<nombre>`.
 
+`functionality-state-changed` contiene `{ applicationId, functionalityId, stateId, active }` después de un PATCH exitoso. `server-event` expone las notificaciones SSE aceptadas para el contexto actual; no se confunde con los eventos de mutaciones locales `created`, `updated` y `deleted`. `events-status` contiene `{ applicationId, status }`, con estados como `connecting`, `connected`, `reconnecting`, `forbidden` o `disconnected`.
+
+La instancia de `mount()` ofrece `reconnectEvents()` para reabrir el canal y la propiedad de lectura `eventsStatus` para conocer su estado.
+
 En Vue, `<MessageUcoLabAdmin>` recibe estas opciones como props en kebab-case
 (`application-name`, `lock-context`…), emite `@event` con `{ name, detail }` y `@unauthorized`, y
-expone `refresh()`, `reload()` y `refreshTheme()`. Si cambia una prop, se vuelve a montar.
+expone `refresh()`, `reload()`, `reconnectEvents()` y `refreshTheme()`. Si cambia una prop, se vuelve a montar y se cierra la suscripción anterior.
 
 ### `createMessageClient(opciones)`
 
@@ -215,5 +250,7 @@ cliente: `get`, `text`, `preload`, `clearCache` y `setFallbacks`.
 | "Tu sesión se perdió" | El acceso de Keycloak dura 5 minutos: pulsa **Volver a conectar**. El origen de tu app debe estar en `PDP_LOGIN_ALLOWED_RETURN_ORIGINS` del componente de seguridad. |
 | "Tu usuario no administra una aplicación llamada X" | El nombre debe coincidir con el de MessageUcoLab y tu usuario debe ser su administrador. |
 | No puedo crear mensajes | La app necesita al menos una funcionalidad activa (pestaña Configuración). |
+| El listado no se actualiza automáticamente | Revisar GET `/messageucolab/v1/messages/events`, su permiso PEP y que el proxy entregue `text/event-stream` sin buffering ni timeout corto. No sustituirlo por una respuesta HTML `200`. |
+| No puedo inactivar una funcionalidad | Revisar el permiso PATCH de `/messageucolab/v1/application/functionality/{functionalityId}/state`. |
 | El color no es el de mi app | Define `--mu-accent` en el contenedor o pasa `theme: { accent }`. |
 | El microfrontend no carga | Abre la URL del bundle en el navegador; ejecuta `npm run serve`. |

@@ -24,6 +24,8 @@
  * Los estilos viven en un Shadow DOM, así que no chocan con los del host.
  */
 
+import { createMessageEventStream } from './message-events.js';
+
 const VERSION = '0.4.0';
 const DEFAULT_API_BASE_URL = '/messageucolab';
 const DEFAULT_LOGIN_URL = 'http://localhost:5173/login';
@@ -114,7 +116,13 @@ function sameText(a, b) {
 }
 
 // El catálogo pasó a español; se aceptan ambos nombres mientras queden datos antiguos.
-const isActiveState = (name) => sameText(name, 'Activo') || sameText(name, 'Active');
+const isActiveState = (name) => ['Activo', 'Activa', 'Active'].some((state) => sameText(name, state));
+const isInactiveState = (name) => ['Inactivo', 'Inactiva', 'Inactive'].some((state) => sameText(name, state));
+function functionalityActivity(item) {
+  if (typeof item?.active === 'boolean') return item.active;
+  const state = nameOf(item?.state || item?.status);
+  return isActiveState(state) ? true : isInactiveState(state) ? false : null;
+}
 const isProduction = (name) => sameText(name, 'Produccion') || sameText(name, 'Producción') || sameText(name, 'Production');
 
 /** Descarga un Blob como archivo desde el documento del host (el Shadow DOM no sirve de ancla). */
@@ -467,7 +475,17 @@ export function createApi(options = {}) {
       return Array.isArray(data) ? data[0] ?? null : data;
     },
     createApplication: (payload) => request('/application', { method: 'POST', body: payload }),
-    createFunctionality: (payload) => request('/application/functionality', { method: 'POST', body: payload })
+    createFunctionality: (payload) => request('/application/functionality', { method: 'POST', body: payload }),
+    updateFunctionalityState: (applicationId, functionalityId, stateId) =>
+      request(`/application/functionality/${encodeURIComponent(functionalityId)}/state`, {
+        method: 'PATCH', applicationId, body: { applicationId, stateId }
+      }),
+    messageEvents: (applicationId, callbacks = {}) => createMessageEventStream({
+      url: `${base}/messages/events`, applicationId, credentials: options.credentials || 'include',
+      onEvent: callbacks.onEvent, onStatus: callbacks.onStatus,
+      onUnauthorized: callbacks.onUnauthorized || (() => options.onUnauthorized?.(
+        new MessageUcoLabError('Tu sesión de seguridad venció.', { status: 401, code: 'SESSION_EXPIRED' })))
+    })
   };
 }
 
@@ -760,6 +778,8 @@ class AdminWidget {
       ...this.options,
       onUnauthorized: (error) => {
         this.sessionLost = true;
+        this.stopRealtime();
+        if (this.state) this.set({ view: 'session', busy: false });
         if (typeof this.options.onUnauthorized === 'function') this.options.onUnauthorized(error);
       }
     });
@@ -769,6 +789,8 @@ class AdminWidget {
       tab: 'list',
       error: '',
       notice: '',
+      catalogError: '',
+      listError: '',
       context: null,
       applications: [],
       catalogs: { types: [], categories: [], states: [], functionalities: [] },
@@ -779,8 +801,17 @@ class AdminWidget {
       translation: null,
       editing: null,
       importing: null,
+      eventsStatus: 'disconnected',
       busy: false
     };
+    this.contextVersion = 0;
+    this.messagesVersion = 0;
+    this.catalogsVersion = 0;
+    this.catalogRevision = 0;
+    this.realtimeGeneration = 0;
+    this.realtimeTimer = null;
+    this.realtimePending = null;
+    this.realtimeInFlight = false;
     this.onClick = this.onClick.bind(this);
     this.onSubmit = this.onSubmit.bind(this);
     this.onInput = this.onInput.bind(this);
@@ -829,6 +860,11 @@ class AdminWidget {
   /* ---------- ciclo de vida ---------- */
 
   destroy() {
+    this.destroyed = true;
+    this.contextVersion++;
+    this.messagesVersion++;
+    this.catalogsVersion++;
+    this.stopRealtime();
     this.root.removeEventListener('click', this.onClick);
     this.root.removeEventListener('submit', this.onSubmit);
     this.root.removeEventListener('input', this.onInput);
@@ -837,7 +873,6 @@ class AdminWidget {
     this.themeObserver?.disconnect();
     this.schemeQuery?.removeEventListener?.('change', this.schemeRefresh);
     this.root.innerHTML = '';
-    this.destroyed = true;
   }
 
   emit(name, detail) {
@@ -861,6 +896,7 @@ class AdminWidget {
     const message = error?.message || String(error);
     this.emit('error', { message, status: error?.status, code: error?.code, where });
     if (error?.status === 401) {
+      this.stopRealtime();
       this.set({ view: 'session' });
     }
     return message;
@@ -871,11 +907,14 @@ class AdminWidget {
   }
 
   async start() {
+    const version = ++this.contextVersion;
+    this.stopRealtime();
     this.sessionLost = false;
-    this.set({ view: 'loading', error: '' });
+    this.set({ view: 'loading', error: '', context: null, busy: false });
     const { applicationName, environmentName } = this.options;
     try {
       const apps = await this.api.sessionApplications();
+      if (this.destroyed || version !== this.contextVersion) return;
       this.state.applications = apps;
       const visible = applicationName ? apps.filter((a) => sameText(a.name, applicationName)) : apps;
       if (visible.length === 1) {
@@ -889,21 +928,32 @@ class AdminWidget {
         });
       }
     } catch (error) {
+      if (this.destroyed || version !== this.contextVersion) return;
       const message = this.fail(error, 'start');
       if (error.status !== 401) this.set({ view: 'fatal', error: message });
     }
   }
 
   async useApplication(app, environmentName = this.options.environmentName) {
-    this.set({ view: 'loading', error: '' });
+    const version = ++this.contextVersion;
+    this.stopRealtime();
+    this.set({ view: 'loading', error: '', context: null, editing: null, detail: null, consumerView: null,
+      translation: null, catalogError: '', listError: '', catalogs: { types: [], categories: [], states: [], functionalities: [] },
+      list: { ...this.state.list, items: [], page: 1, query: '', totalItems: 0, totalPages: 0 } });
     try {
       const ctx = await workspaceFor(this.api, app, environmentName);
+      if (this.destroyed || version !== this.contextVersion) return;
       this.state.context = ctx;
       this.state.importing = null; // la plantilla es de una sola aplicación
       this.emit('context', ctx);
       await Promise.all([this.loadCatalogs(), this.loadMessages(1)]);
-      if (this.state.view !== 'session') this.set({ view: 'ready' });
+      if (this.destroyed || version !== this.contextVersion) return;
+      if (this.state.view !== 'session') {
+        this.set({ view: 'ready' });
+        this.startRealtime();
+      }
     } catch (error) {
+      if (this.destroyed || version !== this.contextVersion) return;
       const message = this.fail(error, 'context');
       if (error.status !== 401) this.set({ view: 'fatal', error: message });
     }
@@ -911,30 +961,215 @@ class AdminWidget {
 
   async loadCatalogs() {
     const appId = this.appId;
-    const settle = (p) => p.catch(() => []);
-    const [types, categories, states, functionalities] = await Promise.all([
-      settle(this.api.messageTypes()),
-      settle(this.api.messageCategories()),
-      settle(this.api.messageStates()),
-      appId ? settle(this.api.functionalities(appId)) : Promise.resolve([])
+    const contextVersion = this.contextVersion;
+    const version = ++this.catalogsVersion;
+    const results = await Promise.allSettled([
+      this.api.messageTypes(), this.api.messageCategories(), this.api.messageStates(),
+      appId ? this.api.functionalities(appId) : Promise.resolve([])
     ]);
-    this.state.catalogs = { types, categories, states, functionalities };
+    if (this.destroyed || appId !== this.appId || contextVersion !== this.contextVersion
+      || version !== this.catalogsVersion || this.sessionLost) return;
+    const keys = ['types', 'categories', 'states', 'functionalities'];
+    this.state.catalogs = Object.fromEntries(keys.map((key, index) => [key,
+      results[index].status === 'fulfilled' ? results[index].value : this.state.catalogs[key]]));
+    const failure = results.find((result) => result.status === 'rejected');
+    this.state.catalogError = failure ? `No se pudieron actualizar los catálogos: ${failure.reason?.message || 'error de conexión'}` : '';
+    this.catalogRevision++;
   }
 
-  async loadMessages(page = this.state.list.page, code = '') {
+  async loadMessages(page = this.state.list.page, code = this.state.list.query, { silent = false } = {}) {
     const list = this.state.list;
+    const appId = this.appId;
     const envId = this.state.context?.environmentId;
-    this.set({ list: { ...list, loading: true, query: code }, notice: code ? this.state.notice : '' });
+    const contextVersion = this.contextVersion;
+    const version = ++this.messagesVersion;
+    const current = () => !this.destroyed && !this.sessionLost && version === this.messagesVersion
+      && contextVersion === this.contextVersion && appId === this.appId
+      && envId === this.state.context?.environmentId;
+    if (!appId) return;
+    this.state.list = { ...list, loading: true, page, query: code };
+    if (!silent) this.render();
     try {
-      const res = await this.api.listMessages(this.appId, {
+      const res = await this.api.listMessages(appId, {
         page,
         size: list.size,
         environmentIds: envId ? [envId] : [],
         code: code ? toMessageCode(code) : ''
       });
-      this.set({ list: { ...this.state.list, ...res, loading: false, query: code }, error: '' });
+      if (!current()) return;
+      const lastPage = Math.max(1, res.totalPages || 1);
+      if (page > lastPage) return this.loadMessages(lastPage, code, { silent });
+      this.state.list = { ...this.state.list, ...res, loading: false, query: code };
+      this.state.listError = '';
     } catch (error) {
-      this.set({ list: { ...this.state.list, items: [], loading: false }, error: this.fail(error, 'list') });
+      if (!current()) return;
+      this.state.list = { ...this.state.list, ...(silent ? {} : { items: [] }), loading: false };
+      this.state.listError = this.fail(error, 'list');
+    }
+    if (current()) {
+      if (silent) this.renderLiveData();
+      else this.render();
+    }
+  }
+
+  /* ---------- actualizaciones administrativas en tiempo real ---------- */
+
+  stopRealtime() {
+    this.realtimeGeneration = (this.realtimeGeneration || 0) + 1;
+    const stream = this.eventStream;
+    this.eventStream = null;
+    stream?.stop();
+    if (this.realtimeTimer !== null) clearTimeout(this.realtimeTimer);
+    this.realtimeTimer = null;
+    this.realtimePending = null;
+    this.realtimeInFlight = false;
+    if (this.state) this.state.eventsStatus = 'disconnected';
+  }
+
+  startRealtime() {
+    this.stopRealtime();
+    const appId = this.appId;
+    const version = this.contextVersion;
+    const generation = this.realtimeGeneration;
+    const current = () => !this.destroyed && !this.sessionLost && this.state.view === 'ready'
+      && this.appId === appId && this.contextVersion === version && this.realtimeGeneration === generation;
+    if (!appId || !current()) return;
+    this.eventStream = this.api.messageEvents(appId, {
+      onEvent: (event) => { if (current()) this.onMessageEvent(event); },
+      onStatus: (status) => {
+        if (!current()) return;
+        this.state.eventsStatus = status;
+        this.renderLiveStatus();
+        this.emit('events-status', { status, applicationId: appId });
+      }
+    });
+    this.eventStream.start();
+  }
+
+  onMessageEvent({ event, data, id }) {
+    const payload = data && typeof data === 'object' ? data : {};
+    const type = event === 'message' ? payload.type : event;
+    if (!['connected', 'MessageCreated', 'MessageUpdated', 'MessageDeleted', 'MessageChanged', 'MessagesChanged'].includes(type)) return;
+    if (payload.applicationId && payload.applicationId !== this.appId) return;
+    const environmentId = this.state.context?.environmentId;
+    if (payload.environmentId && environmentId && payload.environmentId !== environmentId) return;
+    this.emit('server-event', { ...payload, type, id: payload.id || id, applicationId: this.appId });
+    this.scheduleRealtimeRefresh({ type, catalogs: type === 'connected' || type === 'MessagesChanged' });
+  }
+
+  scheduleRealtimeRefresh(event = { type: 'MessageUpdated' }) {
+    if (this.destroyed || this.sessionLost || !this.appId || this.state.view !== 'ready') return;
+    const previous = this.realtimePending;
+    const priority = ['MessageDeleted', 'MessagesChanged', 'connected', 'MessageCreated', 'MessageUpdated', 'MessageChanged'];
+    const previousPriority = previous ? priority.indexOf(previous.type) : -1;
+    const nextPriority = priority.indexOf(event.type);
+    const type = previousPriority !== -1 && (nextPriority === -1 || previousPriority < nextPriority)
+      ? previous.type : event.type;
+    this.realtimePending = { type, catalogs: Boolean(previous?.catalogs || event.catalogs) };
+    if (this.realtimeTimer !== null || this.realtimeInFlight) return;
+    this.realtimeTimer = setTimeout(() => {
+      this.realtimeTimer = null;
+      this.refreshRealtime();
+    }, 150);
+  }
+
+  async refreshRealtime() {
+    const pending = this.realtimePending;
+    if (!pending || this.realtimeInFlight || this.destroyed || this.sessionLost || this.state.view !== 'ready') return;
+    this.realtimePending = null;
+    this.realtimeInFlight = true;
+    const generation = this.realtimeGeneration;
+    try {
+      const list = this.state.list;
+      const page = pending.type === 'MessageDeleted' || (list.query && pending.type !== 'MutationAccepted') ? 1 : list.page;
+      await Promise.all([
+        this.loadMessages(page, list.query, { silent: true }),
+        pending.catalogs ? this.loadCatalogs() : Promise.resolve()
+      ]);
+      if (generation === this.realtimeGeneration) this.renderLiveData();
+    } finally {
+      if (generation === this.realtimeGeneration) {
+        this.realtimeInFlight = false;
+        if (this.realtimePending) this.scheduleRealtimeRefresh(this.realtimePending);
+      }
+    }
+  }
+
+  renderLiveStatus() {
+    if (this.destroyed) return;
+    const region = this.root.querySelector('[data-live-status]');
+    if (!region) return;
+    const status = this.state.eventsStatus;
+    const message = status === 'forbidden'
+      ? 'La actualización automática está bloqueada. Solicita revisar el permiso GET /messageucolab/v1/messages/events en seguridad.'
+      : ['error', 'reconnecting', 'disconnected'].includes(status)
+        ? 'Se perdió la conexión de actualizaciones. Los mensajes se sincronizarán al reconectar.' : '';
+    region.innerHTML = message && this.state.view === 'ready'
+      ? `<div class="alert info" role="status">${escapeHtml(message)} <button class="link small" data-action="events-reconnect">Reconectar actualizaciones</button></div>` : '';
+  }
+
+  renderLiveData() {
+    if (this.destroyed || this.state.view !== 'ready') return;
+    const results = this.root.querySelector('[data-message-results]');
+    if (results) results.innerHTML = this.renderListResults();
+    const functionalities = this.root.querySelector('[data-functionalities]');
+    if (functionalities) functionalities.innerHTML = this.renderFunctionalityList();
+    const feedback = this.root.querySelector('[data-feedback]');
+    if (feedback) feedback.innerHTML = this.renderAlertContents();
+    // Do not replace forms: keep drafts, focus, file inputs and import confirmations intact.
+    const selection = this.root.querySelector('select[name="functionalityId"]');
+    if (selection) {
+      const creating = this.state.tab === 'create';
+      const items = creating ? this.state.catalogs.functionalities.filter((f) => functionalityActivity(f) === true)
+        : this.state.catalogs.functionalities;
+      const value = selection.value;
+      if (selection.dataset.catalogVersion !== String(this.catalogRevision)) {
+        selection.innerHTML = '<option value="">Seleccionar…</option>' + this.options_(items, { selected: value || '-' });
+        selection.value = items.some((item) => item.id === value) ? value : '';
+        selection.disabled = creating && !items.length;
+        selection.dataset.catalogVersion = String(this.catalogRevision);
+      }
+      if (creating) {
+        const submit = this.root.querySelector('form[data-form="create"] button[type="submit"]');
+        if (submit) submit.disabled = this.state.busy || !items.length;
+        const notice = this.root.querySelector('[data-functionality-availability]');
+        if (notice) notice.innerHTML = this.renderFunctionalityAvailability(!items.length);
+      }
+    }
+    this.renderLiveStatus();
+  }
+
+  async toggleFunctionality(id) {
+    if (this.state.busy || this.destroyed || this.sessionLost) return;
+    const functionality = this.state.catalogs.functionalities.find((item) => item.id === id);
+    const active = functionalityActivity(functionality);
+    if (!functionality || active === null) return;
+    const target = this.seeds.functionalityStates.find((state) => active
+      ? isInactiveState(state.name) : isActiveState(state.name));
+    if (!target) return this.set({ error: 'No está configurado el estado destino de funcionalidades.' });
+    const warning = active
+      ? 'Todos sus mensajes pasarán a inactivos en todos los ambientes y dejarán de estar disponibles para consumo. No se eliminarán.'
+      : 'Los mensajes conservarán su estado. Activar la funcionalidad no reactiva automáticamente sus mensajes.';
+    if (!confirm(`¿${active ? 'Inactivar' : 'Activar'} la funcionalidad "${functionality.name}"? ${warning}`)) return;
+    const appId = this.appId;
+    const version = this.contextVersion;
+    const current = () => !this.destroyed && !this.sessionLost && appId === this.appId && version === this.contextVersion;
+    this.set({ busy: true, error: '', notice: '' });
+    try {
+      await this.api.updateFunctionalityState(appId, id, target.id);
+      if (!current()) return;
+      this.state.catalogs.functionalities = this.state.catalogs.functionalities.map((item) => item.id === id
+        ? { ...item, active: !active, stateId: target.id, state: active ? 'Inactivo' : 'Activo' } : item);
+      this.catalogRevision++;
+      this.emit('functionality-state-changed', { applicationId: appId, functionalityId: id, stateId: target.id, active: !active });
+      this.set({ busy: false, notice: active ? 'Funcionalidad inactivada. Sus mensajes están inactivos.'
+        : 'Funcionalidad activada. Sus mensajes conservan su estado.' });
+      this.scheduleRealtimeRefresh({ type: 'MutationAccepted', catalogs: true });
+    } catch (error) {
+      if (!current()) return;
+      this.set({ busy: false, error: error.status === 403
+        ? 'No tienes permiso para cambiar el estado. Solicita revisar el permiso PATCH de funcionalidades en seguridad.'
+        : this.fail(error, 'functionality-state') });
     }
   }
 
@@ -1072,11 +1307,14 @@ class AdminWidget {
   async onChange(event) {
     const target = event.target;
     if (target?.dataset?.action === 'environment') {
+      if (this.state.busy) return;
       const env = this.state.context.environments.find((e) => e.id === target.value);
       if (!env) return;
       this.state.context = { ...this.state.context, environmentId: env.id, environment: env.name };
       this.emit('context', this.state.context);
       this.state.consumerView = null;
+      this.messagesVersion++;
+      this.startRealtime();
       await this.loadMessages(1);
       return;
     }
@@ -1102,6 +1340,7 @@ class AdminWidget {
     const el = event.target.closest('[data-action]');
     if (!el || el.tagName === 'SELECT') return;
     const { action, arg } = el.dataset;
+    if (this.state.busy && ['pick-app', 'change-app', 'toggle-functionality'].includes(action)) return;
     switch (action) {
       case 'tab':
         this.set({
@@ -1109,6 +1348,16 @@ class AdminWidget {
           ...(arg === 'import' && !this.state.importing ? { importing: this.newImport() } : {})
         });
         if (arg === 'list' && !this.state.list.items.length) this.loadMessages(1);
+        if (arg === 'config' || arg === 'create' || arg === 'edit') {
+          await this.loadCatalogs();
+          this.renderLiveData();
+        }
+        break;
+      case 'toggle-functionality':
+        await this.toggleFunctionality(arg);
+        break;
+      case 'events-reconnect':
+        this.startRealtime();
         break;
       case 'import-pick':
         this.root.querySelector('[data-action="import-file"]')?.click();
@@ -1151,7 +1400,9 @@ class AdminWidget {
         break;
       }
       case 'change-app':
-        this.set({ view: 'applications', error: '' });
+        this.contextVersion++;
+        this.stopRealtime();
+        this.set({ view: 'applications', context: null, error: '' });
         break;
       case 'retry':
         this.start();
@@ -1209,6 +1460,7 @@ class AdminWidget {
 
   async onSubmit(event) {
     event.preventDefault();
+    if (this.state.busy || this.destroyed || this.sessionLost) return;
     const form = event.target;
     const formData = new FormData(form);
     const data = Object.fromEntries(formData.entries());
@@ -1229,6 +1481,8 @@ class AdminWidget {
       if (data.content.trim().length < 5 || data.content.trim().length > 2000)
         problems.push('El contenido debe tener entre 5 y 2000 caracteres.');
       if (!data.functionalityId) problems.push('Selecciona una funcionalidad (créala en Configuración si no hay).');
+      else if (functionalityActivity(this.state.catalogs.functionalities.find((f) => f.id === data.functionalityId)) !== true)
+        problems.push('Selecciona una funcionalidad activa de esta aplicación.');
       if (!data.typeId || !data.categoryId || !data.statusId) problems.push('Tipo, categoría y estado son obligatorios.');
       if (problems.length) return this.set({ error: problems.join(' '), notice: '' });
 
@@ -1264,6 +1518,10 @@ class AdminWidget {
       if (data.content.trim().length < 5 || data.content.trim().length > 2000)
         problems.push('El contenido debe tener entre 5 y 2000 caracteres.');
       if (!data.functionalityId) problems.push('Selecciona una funcionalidad.');
+      const selectedFunctionality = this.state.catalogs.functionalities.find((f) => f.id === data.functionalityId);
+      const selectedState = this.state.catalogs.states.find((state) => state.id === data.statusId);
+      if (isActiveState(nameOf(selectedState)) && functionalityActivity(selectedFunctionality) !== true)
+        problems.push('No se puede activar un mensaje mientras su funcionalidad esté inactiva.');
       if (!data.typeId || !data.categoryId || !data.statusId) problems.push('Tipo, categoría y estado son obligatorios.');
       if (problems.length) return this.set({ error: problems.join(' '), notice: '' });
       this.set({ busy: true, error: '' });
@@ -1356,21 +1614,23 @@ class AdminWidget {
           ${ctx && s.view === 'ready' ? this.renderContext(ctx) : ''}
         </div>
         ${s.view === 'ready' ? this.renderTabs() : ''}
+        <div data-live-status aria-live="polite"></div>
         <div class="body">${this.renderBody()}</div>
         <div class="foot"><span>MessageUcoLab widget v${VERSION}</span><span>${escapeHtml(trimSlash(this.options.apiBaseUrl))}</span></div>
       </div>`;
+    this.renderLiveStatus();
   }
 
   renderContext(ctx) {
     const envs = ctx.environments || [];
     const envControl = this.options.lockEnvironment || envs.length < 2
       ? `<b>${escapeHtml(ctx.environment)}</b>`
-      : `<select data-action="environment" aria-label="Ambiente">${envs
+      : `<select data-action="environment" aria-label="Ambiente" ${this.state.busy ? 'disabled' : ''}>${envs
           .map((e) => `<option value="${escapeHtml(e.id)}" ${e.id === ctx.environmentId ? 'selected' : ''}>${escapeHtml(e.name)}</option>`)
           .join('')}</select>`;
     return `<div class="ctx" title="Organización / Aplicación / Ambiente">
         ${escapeHtml(ctx.organization)} / <b>${escapeHtml(ctx.application)}</b> / ${envControl}
-        ${this.options.lockContext || this.state.applications.length < 2 ? '' : '<button class="link small" data-action="change-app">Cambiar</button>'}
+        ${this.options.lockContext || this.state.applications.length < 2 ? '' : `<button class="link small" data-action="change-app" ${this.state.busy ? 'disabled' : ''}>Cambiar</button>`}
       </div>`;
   }
 
@@ -1388,10 +1648,15 @@ class AdminWidget {
   }
 
   renderAlerts() {
+    return `<div data-feedback>${this.renderAlertContents()}</div>`;
+  }
+
+  renderAlertContents() {
     const s = this.state;
     return `${s.error ? `<div class="alert err">${escapeHtml(s.error)}</div>` : ''}${
       s.notice ? `<div class="alert ok">${escapeHtml(s.notice)}</div>` : ''
-    }`;
+    }${s.catalogError ? `<div class="alert err">${escapeHtml(s.catalogError)}</div>` : ''}${
+      s.tab === 'list' && s.listError ? `<div class="alert err">${escapeHtml(s.listError)}</div>` : ''}`;
   }
 
   renderBody() {
@@ -1448,6 +1713,18 @@ class AdminWidget {
 
   renderList() {
     const l = this.state.list;
+    return `${this.renderAlerts()}
+      <form class="row" data-form="search">
+        <input name="q" placeholder="Buscar por código (ej. STOCKLOW o MSG_STOCKLOW)" value="${escapeHtml(l.query)}" />
+        <button type="submit" class="ghost">Buscar</button>
+        <button type="button" class="ghost" data-action="refresh">${l.loading ? 'Cargando…' : 'Actualizar'}</button>
+        <button type="button" data-action="tab" data-arg="create">+ Nuevo</button>
+      </form>
+      <div data-message-results>${this.renderListResults()}</div>`;
+  }
+
+  renderListResults() {
+    const l = this.state.list;
     const rows = l.items
       .map((m) => `<tr>
           <td><span class="code">${escapeHtml(m.code)}</span></td>
@@ -1463,14 +1740,7 @@ class AdminWidget {
           </div></td>
         </tr>`)
       .join('');
-    return `${this.renderAlerts()}
-      <form class="row" data-form="search">
-        <input name="q" placeholder="Buscar por código (ej. STOCKLOW o MSG_STOCKLOW)" value="${escapeHtml(l.query)}" />
-        <button type="submit" class="ghost">Buscar</button>
-        <button type="button" class="ghost" data-action="refresh">${l.loading ? 'Cargando…' : 'Actualizar'}</button>
-        <button type="button" data-action="tab" data-arg="create">+ Nuevo</button>
-      </form>
-      ${l.loading && !l.items.length ? '<div class="loading">Cargando mensajes…</div>' : ''}
+    return `${l.loading && !l.items.length ? '<div class="loading">Cargando mensajes…</div>' : ''}
       ${l.items.length
         ? `<div class="table-wrap"><table>
             <thead><tr><th>Código</th><th>Título</th><th>Contenido</th><th>Funcionalidad</th><th>Ambientes</th><th>Estado</th><th></th></tr></thead>
@@ -1494,13 +1764,12 @@ class AdminWidget {
   renderCreate() {
     const c = this.state.catalogs;
     const ctx = this.state.context;
-    const active = c.functionalities.filter((f) => f.active !== false);
+    const active = c.functionalities.filter((f) => functionalityActivity(f) === true);
     const noFunc = !active.length;
     return `${this.renderAlerts()}
       <h3>Nuevo mensaje</h3>
       <p class="hint">Se crea en <b>${escapeHtml(ctx?.application)}</b>, en los ambientes que marques.</p>
-      ${noFunc ? `<div class="alert info">Esta aplicación no tiene funcionalidades activas. Crea una en
-        <button class="link small" data-action="tab" data-arg="config">Configuración</button> para poder registrar mensajes.</div>` : ''}
+      <div data-functionality-availability>${this.renderFunctionalityAvailability(noFunc)}</div>
       <form data-form="create">
         <div class="grid">
           <div class="full"><label>Ambientes *</label>
@@ -1531,7 +1800,7 @@ class AdminWidget {
         </div>
         <div class="row" style="margin-top:14px">
           <button type="button" class="ghost" data-action="tab" data-arg="list">Cancelar</button>
-          <button type="submit" ${this.state.busy ? 'disabled' : ''}>${this.state.busy ? 'Guardando…' : 'Crear mensaje'}</button>
+          <button type="submit" ${this.state.busy || noFunc ? 'disabled' : ''}>${this.state.busy ? 'Guardando…' : 'Crear mensaje'}</button>
         </div>
       </form>`;
   }
@@ -1712,13 +1981,11 @@ class AdminWidget {
 
   renderConfig() {
     const s = this.state;
-    const funcs = s.catalogs.functionalities;
     return `${this.renderAlerts()}
       <h3>Funcionalidades de ${escapeHtml(s.context?.application)}</h3>
       <p class="hint">Cada mensaje pertenece a una funcionalidad (p. ej. "Inventario", "Ventas").</p>
-      ${funcs.length
-        ? `<div class="row">${funcs.map((f) => `<span class="pill ${f.active === false ? '' : 'accent'}">${escapeHtml(f.name)}</span>`).join('')}</div>`
-        : '<div class="alert info">Aún no hay funcionalidades.</div>'}
+      <p class="hint">Al inactivar una funcionalidad, todos sus mensajes pasan a inactivos en todos los ambientes. Al activarla, los mensajes no se reactivan automáticamente.</p>
+      <div data-functionalities>${this.renderFunctionalityList()}</div>
       <form data-form="functionality" class="grid">
         <label>Nueva funcionalidad<input name="name" maxlength="50" placeholder="Inventario" /></label>
         <label>Estado<select name="stateId">${this.options_(this.seeds.functionalityStates)}</select></label>
@@ -1733,6 +2000,22 @@ class AdminWidget {
         <label>Estado<select name="stateId">${this.options_(this.seeds.applicationStates)}</select></label>
         <div style="align-self:end"><button type="submit" class="ghost" ${s.busy ? 'disabled' : ''}>Crear aplicación</button></div>
       </form>`}`;
+  }
+
+  renderFunctionalityAvailability(unavailable) {
+    return unavailable ? `<div class="alert info">Esta aplicación no tiene funcionalidades activas. Crea o activa una en
+      <button type="button" class="link small" data-action="tab" data-arg="config">Configuración</button> para poder registrar mensajes.</div>` : '';
+  }
+
+  renderFunctionalityList() {
+    const functions = this.state.catalogs.functionalities;
+    if (!functions.length) return '<div class="alert info">Aún no hay funcionalidades.</div>';
+    return `<div class="table-wrap"><table><thead><tr><th>Nombre</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${functions.map((item) => {
+      const active = functionalityActivity(item);
+      const action = active ? 'Inactivar' : 'Activar';
+      return `<tr><td>${escapeHtml(item.name)}</td><td><span class="pill ${active === true ? 'accent' : ''}">${active === null ? 'Estado no disponible' : active ? 'Activo' : 'Inactivo'}</span></td>
+        <td>${active === null ? '' : `<button type="button" class="ghost small" data-action="toggle-functionality" data-arg="${escapeHtml(item.id)}" aria-label="${escapeHtml(`${action} ${item.name}`)}" ${this.state.busy ? 'disabled' : ''}>${action}</button>`}</td></tr>`;
+    }).join('')}</tbody></table></div>`;
   }
 }
 
@@ -1760,6 +2043,10 @@ export function mount(element, options = {}) {
     },
     refresh: () => widget.loadMessages(1),
     reload: () => widget.start(),
+    reconnectEvents: () => widget.startRealtime(),
+    get eventsStatus() {
+      return widget.state.eventsStatus;
+    },
     /** Vuelve a leer el estilo del host (por ejemplo, después de cambiar de tema). */
     refreshTheme: () => widget.applyTheme(),
     get theme() {
