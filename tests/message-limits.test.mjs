@@ -38,59 +38,59 @@ function submit(kind, values) {
   }
 }
 
-function values({ code = 'CODE', title = 't'.repeat(10), content = 'c'.repeat(10) } = {}) {
+function values({ code = 'CODE', title = 't'.repeat(5), content = 'c'.repeat(5) } = {}) {
   return { code, title, content, functionalityId: 'fn-1', typeId: 'type-1', categoryId: 'category-1', statusId: 'status-1', environmentIds: ['dev'] }
 }
 
 test('AdminWidget creation enforces code and text boundaries before calling the simulated API', async () => {
   const { widget, calls } = await widgetHarness()
-  for (const [form, ok] of [[values({ code: '' }), false], [values({ code: 'A' }), true], [values({ code: 'A'.repeat(50), title: 't'.repeat(200), content: 'c'.repeat(500) }), true], [values({ code: 'A'.repeat(51) }), false], [values({ title: '' }), false], [values({ title: 't'.repeat(9) }), false], [values({ title: 't'.repeat(201) }), false], [values({ content: '' }), false], [values({ content: 'c'.repeat(9) }), false], [values({ content: 'c'.repeat(501) }), false]]) {
+  for (const [form, ok] of [[values({ code: '' }), false], [values({ code: 'A' }), true], [values({ code: 'A'.repeat(500), title: 't'.repeat(1000), content: 'c'.repeat(2000) }), true], [values({ code: 'A'.repeat(501) }), false], [values({ title: 't'.repeat(4) }), false], [values({ title: 't'.repeat(1001) }), false], [values({ content: 'c'.repeat(4) }), false], [values({ content: 'c'.repeat(2001) }), false]]) {
     await widget.onSubmit(submit('create', form))
     if (!ok) assert.notEqual(widget.state.error, '')
   }
   assert.equal(calls.create.length, 2)
-  assert.equal(calls.create[1][1].code, 'A'.repeat(50))
-  assert.equal(calls.create[1][1].title.length, 200)
-  assert.equal(calls.create[1][1].content.length, 500)
+  assert.equal(calls.create[1][1].code, 'A'.repeat(500))
+  assert.equal(calls.create[1][1].title.length, 1000)
+  assert.equal(calls.create[1][1].content.length, 2000)
 })
 
 test('AdminWidget creation accepts the optional MSG_ prefix and trims payload values', async () => {
   const { widget, calls } = await widgetHarness()
-  await widget.onSubmit(submit('create', values({ code: ` MSG_${'A'.repeat(50)} `, title: ` ${'t'.repeat(10)} `, content: ` ${'c'.repeat(10)} ` })))
+  await widget.onSubmit(submit('create', values({ code: ` MSG_${'A'.repeat(500)} `, title: ` ${'t'.repeat(5)} `, content: ` ${'c'.repeat(5)} ` })))
   assert.equal(calls.create.length, 1)
-  assert.equal(calls.create[0][1].code, 'A'.repeat(50))
-  assert.equal(calls.create[0][1].title, 't'.repeat(10))
-  assert.equal(calls.create[0][1].content, 'c'.repeat(10))
+  assert.equal(calls.create[0][1].code, 'A'.repeat(500))
+  assert.equal(calls.create[0][1].title, 't'.repeat(5))
+  assert.equal(calls.create[0][1].content, 'c'.repeat(5))
 })
 
 test('AdminWidget editing applies matching title/content bounds and does not call API for invalid values', async () => {
   const { widget, calls } = await widgetHarness()
-  for (const form of [values({ title: '' }), values({ title: 't'.repeat(9) }), values({ title: 't'.repeat(201) }), values({ content: '' }), values({ content: 'c'.repeat(9) }), values({ content: 'c'.repeat(501) })]) {
+  for (const form of [values({ title: 't'.repeat(4) }), values({ title: 't'.repeat(1001) }), values({ content: 'c'.repeat(4) }), values({ content: 'c'.repeat(2001) })]) {
     await widget.onSubmit(submit('edit', form))
     assert.equal(calls.update.length, 0)
     assert.notEqual(widget.state.error, '')
   }
-  await widget.onSubmit(submit('edit', values({ title: 't'.repeat(200), content: 'c'.repeat(500) })))
+  await widget.onSubmit(submit('edit', values({ title: 't'.repeat(1000), content: 'c'.repeat(2000) })))
   assert.equal(calls.update.length, 1)
   assert.equal(calls.update[0][1], 'MSG_EDIT')
-  assert.equal(calls.update[0][2].title.length, 200)
-  assert.equal(calls.update[0][2].content.length, 500)
+  assert.equal(calls.update[0][2].title.length, 1000)
+  assert.equal(calls.update[0][2].content.length, 2000)
 })
 
-test('AdminWidget renders matching input caps and counts the 50-character suffix without MSG_', async () => {
+test('AdminWidget renders matching input caps and counts the 500-character suffix without MSG_', async () => {
   const { widget } = await widgetHarness()
-  widget.state.catalogs = { functionalities: [], types: [], categories: [], states: [] }
+  widget.state.catalogs = { functionalities: [{ id: 'fn-1', active: true }], types: [], categories: [], states: [] }
   widget.state.context = { application: 'App', environmentId: 'dev', environments: [] }
   widget.renderAlerts = () => ''
   widget.options_ = () => ''
   const html = widget.renderCreate()
-  assert.match(html, /name="code" maxlength="54"[^>]*data-count="1-50"/)
-  assert.match(html, /name="title" maxlength="200"/)
-  assert.match(html, /name="content" maxlength="500"/)
+  assert.match(html, /name="code" maxlength="504"[^>]*data-count="1-500"/)
+  assert.match(html, /name="title" minlength="5" maxlength="1000"/)
+  assert.match(html, /name="content" minlength="5" maxlength="2000"/)
 
   const output = { textContent: '', classList: { toggled: null, toggle(_name, value) { this.toggled = value } } }
   widget.root = { querySelector() { return output } }
-  widget.onInput({ target: { name: 'code', value: `MSG_${'A'.repeat(50)}`, dataset: { count: '1-50' } } })
-  assert.equal(output.textContent, `50/50 · se guardará como MSG_${'A'.repeat(50)}`)
+  widget.onInput({ target: { name: 'code', value: `MSG_${'A'.repeat(500)}`, dataset: { count: '1-500' } } })
+  assert.equal(output.textContent, `500/500 · se guardará como MSG_${'A'.repeat(500)}`)
   assert.equal(output.classList.toggled, false)
 })
