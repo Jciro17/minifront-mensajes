@@ -1221,13 +1221,13 @@ class AdminWidget {
       const suffix = String(data.code || '').trim().toUpperCase().replace(/^MSG_+/, '');
       const environmentIds = formData.getAll('environmentIds');
       const problems = [];
-      if (!suffix || suffix.length > 50 || !/^[A-Z0-9 ]+$/.test(suffix))
-        problems.push('El código acepta entre 1 y 50 letras, números o espacios (sin MSG_). Ej.: STOCKLOW');
+      if (!suffix || suffix.length > 500 || !/^[A-Z0-9 ]+$/.test(suffix))
+        problems.push('El código acepta entre 1 y 500 letras, números o espacios (sin MSG_). Ej.: STOCKLOW');
       if (!environmentIds.length) problems.push('Elige al menos un ambiente.');
-      if (data.title.trim().length < 10 || data.title.trim().length > 200)
-        problems.push('El título debe tener entre 10 y 200 caracteres.');
-      if (data.content.trim().length < 10 || data.content.trim().length > 500)
-        problems.push('El contenido debe tener entre 10 y 500 caracteres.');
+      if (data.title.trim().length < 5 || data.title.trim().length > 1000)
+        problems.push('El título debe tener entre 5 y 1000 caracteres.');
+      if (data.content.trim().length < 5 || data.content.trim().length > 2000)
+        problems.push('El contenido debe tener entre 5 y 2000 caracteres.');
       if (!data.functionalityId) problems.push('Selecciona una funcionalidad (créala en Configuración si no hay).');
       if (!data.typeId || !data.categoryId || !data.statusId) problems.push('Tipo, categoría y estado son obligatorios.');
       if (problems.length) return this.set({ error: problems.join(' '), notice: '' });
@@ -1259,10 +1259,10 @@ class AdminWidget {
       const code = this.state.editing?.code;
       if (!code) return;
       const problems = [];
-      if (data.title.trim().length < 10 || data.title.trim().length > 200)
-        problems.push('El título debe tener entre 10 y 200 caracteres.');
-      if (data.content.trim().length < 10 || data.content.trim().length > 500)
-        problems.push('El contenido debe tener entre 10 y 500 caracteres.');
+      if (data.title.trim().length < 5 || data.title.trim().length > 1000)
+        problems.push('El título debe tener entre 5 y 1000 caracteres.');
+      if (data.content.trim().length < 5 || data.content.trim().length > 2000)
+        problems.push('El contenido debe tener entre 5 y 2000 caracteres.');
       if (!data.functionalityId) problems.push('Selecciona una funcionalidad.');
       if (!data.typeId || !data.categoryId || !data.statusId) problems.push('Tipo, categoría y estado son obligatorios.');
       if (problems.length) return this.set({ error: problems.join(' '), notice: '' });
@@ -1509,8 +1509,8 @@ class AdminWidget {
               .join('')}</div>
           </div>
           <label>Código *
-            <input name="code" maxlength="54" placeholder="STOCKLOW" data-count="1-50" autocomplete="off" />
-            <small data-counter-for="code">0/50 · se guardará como MSG_…</small>
+            <input name="code" maxlength="504" placeholder="STOCKLOW" data-count="1-500" autocomplete="off" />
+            <small data-counter-for="code">0/500 · se guardará como MSG_…</small>
           </label>
           <label>Funcionalidad *
             <select name="functionalityId" ${noFunc ? 'disabled' : ''}>
@@ -1520,13 +1520,13 @@ class AdminWidget {
           <label>Tipo *<select name="typeId">${this.options_(c.types)}</select></label>
           <label>Categoría *<select name="categoryId">${this.options_(c.categories)}</select></label>
           <label>Estado *<select name="statusId">${this.options_(c.states)}</select></label>
-          <label class="full"><span>Título * <small>(10 a 200)</small></span>
-            <input name="title" maxlength="200" data-count="10-200" placeholder="Stock por debajo del mínimo" />
-            <small data-counter-for="title">0/200 caracteres</small>
+          <label class="full"><span>Título * <small>(5 a 1000)</small></span>
+            <input name="title" minlength="5" maxlength="1000" data-count="5-1000" placeholder="Stock por debajo del mínimo" />
+            <small data-counter-for="title">0/1000 caracteres</small>
           </label>
-          <label class="full"><span>Contenido * <small>(10 a 500). Puedes usar variables como {nombre}; la app las reemplaza.</small></span>
-            <textarea name="content" maxlength="500" data-count="10-500" placeholder="El producto {nombre} tiene solo {cantidad} unidades."></textarea>
-            <small data-counter-for="content">0/500 caracteres</small>
+          <label class="full"><span>Contenido * <small>(5 a 2000). Puedes usar variables como {nombre}; la app las reemplaza.</small></span>
+            <textarea name="content" minlength="5" maxlength="2000" data-count="5-2000" placeholder="El producto {nombre} tiene solo {cantidad} unidades."></textarea>
+            <small data-counter-for="content">0/2000 caracteres</small>
           </label>
         </div>
         <div class="row" style="margin-top:14px">
@@ -1652,11 +1652,11 @@ class AdminWidget {
               ${this.options_(c.functionalities, { selected: m.functionalityId })}
             </select>
           </label>
-          <label class="full"><span>Título * <small>(10 a 200)</small></span>
-            <input name="title" maxlength="200" value="${escapeHtml(m.title)}" />
+          <label class="full"><span>Título * <small>(5 a 1000)</small></span>
+            <input name="title" minlength="5" maxlength="1000" value="${escapeHtml(m.title)}" />
           </label>
-          <label class="full"><span>Contenido * <small>(10 a 500)</small></span>
-            <textarea name="content" maxlength="500">${escapeHtml(m.content)}</textarea>
+          <label class="full"><span>Contenido * <small>(5 a 2000)</small></span>
+            <textarea name="content" minlength="5" maxlength="2000">${escapeHtml(m.content)}</textarea>
           </label>
         </div>
         <div class="row" style="margin-top:14px">
