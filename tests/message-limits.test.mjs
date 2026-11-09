@@ -16,11 +16,20 @@ async function widgetHarness() {
     }
   })
   const module = new vm.SourceTextModule(source, { context })
-  await module.link(() => { throw new Error('unexpected source import') })
+  await module.link(async (specifier) => {
+    if (specifier !== './message-events.js') throw new Error(`unexpected source import: ${specifier}`)
+    const eventsSource = await readFile(new URL('../src/message-events.js', import.meta.url), 'utf8')
+    return new vm.SourceTextModule(eventsSource, { context })
+  })
   await module.evaluate()
   const widget = Object.create(module.namespace.AdminWidget.prototype)
   const calls = { create: [], update: [] }
-  widget.state = { context: { applicationId: 'app-1' }, editing: { code: 'MSG_EDIT' }, list: { page: 1 } }
+  widget.state = {
+    context: { applicationId: 'app-1' },
+    editing: { code: 'MSG_EDIT' },
+    list: { page: 1 },
+    catalogs: { functionalities: [{ id: 'fn-1', active: true }], states: [{ id: 'status-1', name: 'Activa' }] }
+  }
   widget.api = {
     async createMessage(...args) { calls.create.push(args) },
     async updateMessage(...args) { calls.update.push(args) }

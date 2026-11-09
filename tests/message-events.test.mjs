@@ -33,9 +33,10 @@ test('SSE sends request credentials and headers, then parses JSON, multiline dat
   const priorFetch = globalThis.fetch
   const events = []
   let request
+  let stream
   globalThis.fetch = async (...args) => { request = args; return response(['event: MessageUpdated\r', '\nid: 17\r\ndata: {"title":\r\ndata: "hello"}\r\n\r\n']) }
   try {
-    const stream = create({ url: '/v1/messages/events', applicationId: 'app-7', onEvent: event => events.push(event) })
+    stream = create({ url: '/v1/messages/events', applicationId: 'app-7', onEvent: event => events.push(event) })
     stream.start()
     await new Promise(resolve => setImmediate(resolve))
     assert.equal(request[0], '/v1/messages/events')
@@ -44,9 +45,11 @@ test('SSE sends request credentials and headers, then parses JSON, multiline dat
     assert.equal(request[1].credentials, 'include')
     assert.deepEqual(events.map(({ event }) => event), ['connected', 'MessageUpdated'])
     assert.equal(events[1].id, '17')
-    assert.deepEqual(events[1].data, { title: 'hello' })
-    stream.stop()
-  } finally { globalThis.fetch = priorFetch }
+    assert.equal(JSON.stringify(events[1].data), JSON.stringify({ title: 'hello' }))
+  } finally {
+    stream?.stop()
+    globalThis.fetch = priorFetch
+  }
 })
 
 test('401 is terminal and invokes unauthorized callback once; 403 is terminal without logout callback', async () => {
@@ -57,10 +60,12 @@ test('401 is terminal and invokes unauthorized callback once; 403 is terminal wi
       let callbackCount = 0
       const statuses = []
       globalThis.fetch = async () => response([], { status })
-      create({ url: '/events', applicationId: 'app', onStatus: value => statuses.push(value), onUnauthorized: () => callbackCount++ }).start()
+      const stream = create({ url: '/events', applicationId: 'app', onStatus: value => statuses.push(value), onUnauthorized: () => callbackCount++ })
+      stream.start()
       await new Promise(resolve => setImmediate(resolve))
       assert.equal(statuses.at(-1), expected)
       assert.equal(callbackCount, unauthorized)
+      stream.stop()
     }
   } finally { globalThis.fetch = priorFetch }
 })
@@ -87,11 +92,16 @@ test('HTML response is treated as an error rather than a connected stream', asyn
   const create = await loadFactory()
   const priorFetch = globalThis.fetch
   const statuses = []
+  let stream
   globalThis.fetch = async () => response([], { type: 'text/html' })
   try {
-    create({ url: '/events', applicationId: 'app', onStatus: status => statuses.push(status) }).start()
+    stream = create({ url: '/events', applicationId: 'app', onStatus: status => statuses.push(status) })
+    stream.start()
     await new Promise(resolve => setImmediate(resolve))
     assert.equal(statuses.includes('connected'), false)
     assert.equal(statuses.includes('error'), true)
-  } finally { globalThis.fetch = priorFetch }
+  } finally {
+    stream?.stop()
+    globalThis.fetch = priorFetch
+  }
 })
