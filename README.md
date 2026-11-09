@@ -108,7 +108,6 @@ import { MessageUcoLabAdmin } from 'minifront-mensajes/vue'
     environment-name="Develop"
     login-url="http://localhost:5173/login"
     lock-context
-    :allow-application-creation="false"
   />
 </template>
 ```
@@ -137,6 +136,8 @@ La sección **Configuración** muestra nombre, estado y una acción **Activar/In
 - Inactivar una funcionalidad inactiva todos sus mensajes, en todos los ambientes, sin eliminarlos.
 - Activarla nuevamente no reactiva sus mensajes; conservan el estado anterior.
 - Solo las funcionalidades activas pueden seleccionarse al crear mensajes. No se permite activar un mensaje si su funcionalidad está inactiva; el backend vuelve a validar estas reglas.
+
+El formulario para crear funcionalidades se presenta separado del listado. Configuración no permite registrar otras aplicaciones; estas se crean desde el frontend administrativo de MessageUcoLab.
 
 La administración usa estos contratos existentes del backend:
 
@@ -217,10 +218,10 @@ Tokens disponibles: `accent`, `accentText`, `background`, `text`, `surface`, `bo
 | `title` | `Mensajes de la aplicación` | Título de la cabecera. |
 | `theme` | `'auto'` | `'auto'`, `'none'` o un objeto de tokens (sección 3). |
 | `pageSize` | `10` | Mensajes por página. |
-| `allowApplicationCreation` | `true` | Muestra el formulario para registrar otra aplicación en Configuración. |
-| `onEvent(nombre, detalle)` | — | Eventos: `context`, `created`, `updated`, `deleted`, `functionality-created`, `functionality-state-changed`, `application-created`, `imported`, `server-event`, `events-status`, `error`. |
+| `allowApplicationCreation` | — | Obsoleta, sin efecto. Configuración ya no permite registrar aplicaciones. |
+| `onEvent(nombre, detalle)` | — | Eventos: `context`, `created`, `updated`, `deleted`, `functionality-created`, `functionality-state-changed`, `imported`, `server-event`, `events-status`, `error`. |
 | `onUnauthorized(error)` | — | Se llama ante un 401 (sesión vencida). |
-| `seeds` | UUIDs del seed | Idiomas y estados para crear aplicaciones y funcionalidades. |
+| `seeds` | UUIDs del seed | `functionalityStates` define los estados para crear funcionalidades. |
 
 Los mismos eventos se emiten en el contenedor como `CustomEvent` `messageucolab:<nombre>`.
 

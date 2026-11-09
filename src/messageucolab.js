@@ -708,6 +708,7 @@ label { display: grid; gap: 4px; align-content: start; font-size: .93em; font-we
 label small { font-weight: 400; color: var(--muted); }
 label small.bad { color: var(--danger); }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.functionality-form { margin-top: 24px; gap: 16px; align-items: end; }
 .full { grid-column: 1 / -1; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .row input { flex: 1 1 220px; width: auto; }
@@ -1572,27 +1573,6 @@ class AdminWidget {
       }
       return;
     }
-
-    if (kind === 'application') {
-      if (!data.name.trim()) return this.set({ error: 'El nombre de la aplicación es obligatorio.' });
-      this.set({ busy: true, error: '' });
-      try {
-        await this.api.createApplication({
-          name: data.name.trim().slice(0, 50),
-          organizationId: this.state.context.organizationId,
-          languageId: data.languageId,
-          stateId: data.stateId
-        });
-        this.emit('application-created', { name: data.name.trim() });
-        this.state.applications = await this.api.sessionApplications();
-        this.set({
-          busy: false,
-          notice: `Aplicación "${data.name.trim()}" creada con sus ambientes Develop, Testing y Produccion.`
-        });
-      } catch (error) {
-        this.set({ busy: false, error: this.fail(error, 'application') });
-      }
-    }
   }
 
   /* ---------- render ---------- */
@@ -1986,20 +1966,11 @@ class AdminWidget {
       <p class="hint">Cada mensaje pertenece a una funcionalidad (p. ej. "Inventario", "Ventas").</p>
       <p class="hint">Al inactivar una funcionalidad, todos sus mensajes pasan a inactivos en todos los ambientes. Al activarla, los mensajes no se reactivan automáticamente.</p>
       <div data-functionalities>${this.renderFunctionalityList()}</div>
-      <form data-form="functionality" class="grid">
+      <form data-form="functionality" class="grid functionality-form">
         <label>Nueva funcionalidad<input name="name" maxlength="50" placeholder="Inventario" /></label>
         <label>Estado<select name="stateId">${this.options_(this.seeds.functionalityStates)}</select></label>
-        <div style="align-self:end"><button type="submit" ${s.busy ? 'disabled' : ''}>Crear funcionalidad</button></div>
-      </form>
-      ${this.options.allowApplicationCreation === false ? '' : `
-      <h4>Registrar otra aplicación</h4>
-      <p class="hint">Crea la aplicación en la organización <b>${escapeHtml(s.context?.organization)}</b> con sus ambientes Develop, Testing y Produccion.</p>
-      <form data-form="application" class="grid">
-        <label>Nombre<input name="name" maxlength="50" placeholder="Mi aplicación" /></label>
-        <label>Idioma base<select name="languageId">${this.options_(this.seeds.languages)}</select></label>
-        <label>Estado<select name="stateId">${this.options_(this.seeds.applicationStates)}</select></label>
-        <div style="align-self:end"><button type="submit" class="ghost" ${s.busy ? 'disabled' : ''}>Crear aplicación</button></div>
-      </form>`}`;
+        <div><button type="submit" ${s.busy ? 'disabled' : ''}>Crear funcionalidad</button></div>
+      </form>`;
   }
 
   renderFunctionalityAvailability(unavailable) {
