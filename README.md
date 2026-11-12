@@ -89,8 +89,10 @@ const aviso = useMensaje('MSG_STOCKLOW', () => ({ nombre: props.producto.nombre,
 ```
 
 `get()` **nunca lanza error**: si MessageUcoLab falla devuelve el respaldo con `source: 'fallback'`.
-Usa la ruta pública `GET /messageucolab/v1/public/messages/{código}` con `X-Application-Id` y
-`X-Environment-Id`.
+Usa las rutas de consumo `GET /messageucolab/v1/messages/consumer?code={código}` (y
+`POST /messageucolab/v1/messages/consumer/translations` cuando pides un idioma) con la sesión del componente de
+seguridad, `X-Application-Id` y `X-Environment-Id`. Para mostrar mensajes a usuarios sin sesión, pídelos a tu
+backend: él consulta MessageUcoLab con su identidad de servicio (cliente Java).
 
 > Si tu backend ya responde el texto resuelto (guía, paso 8), la pantalla solo lo muestra: no hace
 > falta pedirlo otra vez.
