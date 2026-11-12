@@ -15,7 +15,9 @@
  *
  * Autenticación: la administración usa la sesión BFF del componente de seguridad
  * (cookie SECURITY_BASELINE_SESSION), enviada con credentials: 'include'. El cliente de
- * mensajes usa la ruta pública /public/messages y no necesita sesión. El widget no maneja tokens.
+ * mensajes usa las rutas de consumo /messages/consumer con esa misma sesión. El widget no maneja
+ * tokens: una aplicación que muestra mensajes a usuarios sin sesión los pide a su propio backend,
+ * que consulta MessageUcoLab con su identidad de servicio.
  *
  * Estilo adaptativo: por defecto (theme: 'auto') toma la tipografía, los colores de texto
  * y fondo, el color principal y el redondeo de la aplicación que lo monta. Ver resolveTheme().
@@ -440,11 +442,15 @@ export function createApi(options = {}) {
       if (Array.isArray(data)) return data[0] ?? null;
       return data ?? null;
     },
-    // Consumo público: sin sesión; sin idioma devuelve el texto original.
-    consumerMessage: (applicationId, environmentId, code, language = '') =>
-      request(`/public/messages/${encodeURIComponent(toMessageCode(code))}${language ? `?language=${encodeURIComponent(language)}` : ''}`,
-        { applicationId, environmentId, timeout: language ? Math.max(timeoutMs, 60000) : timeoutMs }),
-    publicMessages: (applicationId, environmentId) => request('/public/messages', { applicationId, environmentId }),
+    // Rutas de consumo con la sesión: sin idioma devuelve el texto original; con idioma, la traducción.
+    consumerMessage: (applicationId, environmentId, code, language = '') => {
+      const query = `?code=${encodeURIComponent(toMessageCode(code))}`;
+      return language
+        ? request(`/messages/consumer/translations${query}`, { method: 'POST', body: { targetLanguage: language },
+            applicationId, environmentId, timeout: Math.max(timeoutMs, 60000) })
+        : request(`/messages/consumer${query}`, { applicationId, environmentId });
+    },
+    consumerMessages: (applicationId, environmentId) => request('/messages/consumer', { applicationId, environmentId }),
     // Importación por Excel: se valida todo el archivo y solo se guarda al confirmar.
     importTemplate: (applicationId) => request('/messages/imports/template', { applicationId, download: true }),
     validateImport: (applicationId, file, environmentIds) => {
@@ -539,7 +545,7 @@ export const ensureContext = resolveWorkspace;
  *
  *   const mensajes = createMessageClient({
  *     apiBaseUrl: '/messageucolab',
- *     applicationId: '...', environmentId: '...',        // con los IDs no hace falta sesión
+ *     applicationId: '...', environmentId: '...',        // requiere la sesión del propietario
  *     language: 'en',                                    // opcional: idioma de los textos
  *     fallbacks: { MSG_STOCKLOW: { title: 'Stock bajo', content: 'Quedan {qty} unidades' } }
  *   });
