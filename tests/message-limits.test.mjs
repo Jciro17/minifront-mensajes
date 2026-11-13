@@ -25,7 +25,7 @@ async function widgetHarness() {
   const widget = Object.create(module.namespace.AdminWidget.prototype)
   const calls = { create: [], update: [] }
   widget.state = {
-    context: { applicationId: 'app-1' },
+    context: { applicationId: 'app-1', environments: [{ id: 'dev' }] },
     editing: { code: 'MSG_EDIT' },
     list: { page: 1 },
     catalogs: { functionalities: [{ id: 'fn-1', active: true }], states: [{ id: 'status-1', name: 'Activa' }] }
@@ -93,9 +93,9 @@ test('AdminWidget renders matching input caps and counts the 500-character suffi
   widget.renderAlerts = () => ''
   widget.options_ = () => ''
   const html = widget.renderCreate()
-  assert.match(html, /name="code" maxlength="504"[^>]*data-count="1-500"/)
-  assert.match(html, /name="title" minlength="5" maxlength="1000"/)
-  assert.match(html, /name="content" minlength="5" maxlength="2000"/)
+  assert.match(html, /name="code" required maxlength="504"[^>]*data-count="1-500"/)
+  assert.match(html, /name="title" required minlength="5" maxlength="1000"/)
+  assert.match(html, /name="content" required minlength="5" maxlength="2000"/)
 
   const output = { textContent: '', classList: { toggled: null, toggle(_name, value) { this.toggled = value } } }
   widget.root = { querySelector() { return output } }

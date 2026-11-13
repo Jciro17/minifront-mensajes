@@ -8,7 +8,7 @@
  *   import { MessageUcoLabPlugin } from 'minifront-mensajes/vue'
  *   app.use(MessageUcoLabPlugin, {
  *     apiBaseUrl: '/messageucolab',                    // proxy de Vite hacia MessageUcoLab
- *     applicationId: '...', environmentId: '...',      // ruta pública: no necesita sesión
+ *     applicationId: '...', environmentId: '...',      // consumo con la sesión del propietario
  *     fallbacks: { MSG_INVALID: { title: 'Datos inválidos', content: 'Revisa el formulario.' } }
  *   })
  *
