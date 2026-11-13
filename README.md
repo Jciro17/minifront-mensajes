@@ -7,7 +7,7 @@ todos los equipos, y funciona también en cualquier otro front.
 | Pieza | Para qué sirve | En Vue |
 |---|---|---|
 | **Administración de mensajes** | Listar, crear, editar, consultar, traducir e importar por Excel los mensajes de *tu* aplicación. Necesita la sesión de seguridad | `<MessageUcoLabAdmin>` |
-| **Cliente de mensajes** | Mostrar los textos en tu pantalla con caché y texto de respaldo. Usa la ruta pública: el usuario no necesita iniciar sesión | `useMensajes()` y `useMensaje()` |
+| **Cliente de mensajes** | Mostrar los textos en tu pantalla con caché y texto de respaldo. Usa las rutas de consumo con la sesión del propietario | `useMensajes()` y `useMensaje()` |
 
 Los estilos van en Shadow DOM, así que no chocan con los de tu aplicación, **pero se adaptan a ella**
 (sección 3). Ejemplo completo: [InventarioWebFlux-Frontend](https://github.com/Jciro17/InventarioWebFlux-Frontend).
@@ -131,6 +131,17 @@ widget.unmount()   // al salir de la pantalla
 
 O la etiqueta `<messageucolab-admin api-base-url="/messageucolab" application-name="Asistencia UCO" lock-context>`.
 
+### Administración actualizada
+
+- Búsqueda combinada por **código y título**, con filtros de **estado y funcionalidad**. Se aplican al pulsar **Buscar**; **Limpiar búsqueda** quita estos cuatro criterios y conserva el ambiente de la cabecera.
+- La cabecera permite consultar un ambiente o **Todos los ambientes**. El ambiente inicial sigue siendo `environmentName` (o `Develop`); `lockEnvironment` conserva fijo ese selector. El selector es administrativo: no cambia el idioma ni las pantallas de la aplicación consumidora.
+- Listado con vista resumida del contenido, distintivos de estado y ambientes, **última modificación** y orden ascendente/descendente al pulsar esa columna. Las fechas ausentes se muestran como `—`, sin inferirlas de la creación.
+- Paginación con cantidad de resultados y tamaños de **5, 10, 20 o 50** por página. Las actualizaciones SSE conservan la búsqueda, los filtros y el orden aplicado.
+- Creación y edición organizadas por secciones. La edición permite reemplazar los ambientes del mensaje mediante el `PUT /messages/{code}` existente y exige seleccionar al menos uno. Los datos escritos se conservan al mostrar errores de validación o guardado; no se guardan en almacenamiento local ni se comparten entre aplicaciones.
+- Indicador de conexión en vivo, acciones etiquetadas para lectores de pantalla y distribución adaptada al ancho del contenedor, conservando el tema del host y el aislamiento de Shadow DOM.
+
+Con **Todos los ambientes**, la creación y la importación exigen elegir sus ambientes explícitamente; la consulta de consumo con sesión en el detalle requiere seleccionar uno concreto en la cabecera. Estos cambios no añaden rutas ni permisos nuevos y no modifican el componente de seguridad.
+
 ### Funcionalidades y actualizaciones automáticas de administración
 
 La sección **Configuración** muestra nombre, estado y una acción **Activar/Inactivar** por funcionalidad. Antes de guardar se solicita confirmación explícita:
@@ -158,7 +169,7 @@ Si el canal se interrumpe se reintenta automáticamente con espera progresiva. U
 
 SSE avisa después de actualizar las proyecciones de lectura. Sigue siendo asíncrono y en memoria: puede haber varias señales por acción y no existe replay durable ni reparto automático entre réplicas.
 
-**Esto no sincroniza la caché pública de `createMessageClient` ni de `useMensajes()`.** Esos clientes siguen usando TTL y no abren un canal administrativo con sesión. El GET inicial con cursor, historial persistente de cambios y SSE para cachés consumidoras es una mejora futura distinta.
+**Esto no sincroniza la caché de `createMessageClient` ni de `useMensajes()`.** Esos clientes consultan con la sesión, siguen usando TTL y no abren por sí mismos un canal SSE administrativo. El GET inicial con cursor, historial persistente de cambios y SSE para cachés consumidoras es una mejora futura distinta.
 
 Para incorporar una versión nueva en una aplicación que instala este paquete, primero hay que publicar el commit y actualizar la dependencia Git a esa revisión. Si se consume por URL, volver a generar y publicar ambos bundles de `dist`; compilar este repositorio no actualiza automáticamente los paquetes ya instalados en otras aplicaciones.
 
@@ -216,6 +227,7 @@ Tokens disponibles: `accent`, `accentText`, `background`, `text`, `surface`, `bo
 | `applicationName` | — | Selecciona esa aplicación. Sin ella, el usuario elige entre las suyas. |
 | `environmentName` | `Develop` | Ambiente inicial (se puede cambiar en la cabecera). |
 | `lockContext` | `false` | Oculta el botón "Cambiar" aplicación. |
+| `lockEnvironment` | `false` | Mantiene fijo el ambiente inicial. En Vue: `lock-environment`; también disponible en la etiqueta HTML. |
 | `loginUrl` | `http://localhost:5173/login` | Login del componente de seguridad para "Volver a conectar". |
 | `title` | `Mensajes de la aplicación` | Título de la cabecera. |
 | `theme` | `'auto'` | `'auto'`, `'none'` o un objeto de tokens (sección 3). |

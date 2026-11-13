@@ -1,4 +1,4 @@
-/** Protected administrative SSE; never used automatically by the public message client. */
+/** Protected administrative SSE; never opened automatically by the message client. */
 export function createMessageEventStream({ url, applicationId, credentials = 'include', onEvent, onStatus, onUnauthorized }) {
   let connection = null;
   let timer = null;
